@@ -17,6 +17,67 @@ LABELS = [
     "OUT_OF_TOPIC",
 ]
 
+ASPEK_ID = {
+    "PRODUCT": "Produk",
+    "PRICE": "Harga",
+    "PLACE": "Tempat",
+    "PROMOTION": "Promosi",
+    "OUT_OF_TOPIC": "Di luar topik",
+}
+
+SENTIMEN_ID = {
+    "POSITIVE": "Positif",
+    "NEGATIVE": "Negatif",
+    "NEUTRAL": "Netral",
+    "OUT_OF_TOPIC": "Di luar topik",
+    "": "",
+}
+
+NAMA_KOLOM_REVIEW = {
+    "review_id": "ID Ulasan",
+    "input_hash": "Hash Input",
+    "category": "Kategori Usaha",
+    "business_name": "Nama Usaha",
+    "rating": "Rating",
+    "review_text": "Teks Ulasan",
+    "clean_review_text": "Teks Ulasan Bersih",
+    "word_count": "Jumlah Kata",
+    "token_count": "Jumlah Token",
+    "n_annotators": "Jumlah Annotator",
+    "majority_labels": "Label Mayoritas",
+    "union_labels": "Semua Label Terpilih",
+}
+
+NAMA_KOLOM_LABEL = {
+    "review_id": "ID Ulasan",
+    "label": "Kode Label",
+    "label_indonesia": "Label",
+    "aspect": "Kode Aspek",
+    "aspect_indonesia": "Aspek",
+    "sentiment": "Kode Sentimen",
+    "sentiment_indonesia": "Sentimen",
+    "vote_count": "Jumlah Suara",
+    "is_majority": "Mayoritas",
+    "is_union": "Dipilih Minimal 1 Annotator",
+    "jumlah_review": "Jumlah Ulasan",
+}
+
+NAMA_KOLOM_ENTITAS = {
+    "review_id": "ID Ulasan",
+    "annotator_id": "Annotator",
+    "label": "Kode Label",
+    "label_indonesia": "Label",
+    "aspect": "Kode Aspek",
+    "aspect_indonesia": "Aspek",
+    "sentiment": "Kode Sentimen",
+    "sentiment_indonesia": "Sentimen",
+    "entity_text": "Teks Entitas",
+    "start": "Mulai",
+    "end": "Akhir",
+    "is_majority_label": "Sesuai Label Mayoritas",
+    "jumlah_entitas": "Jumlah Entitas",
+}
+
 
 def get_paths():
     app_dir = Path(__file__).resolve().parent
@@ -38,8 +99,8 @@ def get_paths():
 
 def clean_text(text):
     text = str(text)
-    text = re.sub(r"\s+", " ", text).strip()
     text = text.replace("\u200b", "")
+    text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
@@ -50,28 +111,95 @@ def word_count(text):
 def parse_label(label):
     if label == "OUT_OF_TOPIC":
         return "OUT_OF_TOPIC", "OUT_OF_TOPIC"
-    parts = label.rsplit("_", 1)
+    parts = str(label).rsplit("_", 1)
     if len(parts) == 2:
         return parts[0], parts[1]
-    return label, ""
+    return str(label), ""
+
+
+def label_to_indonesia(label):
+    aspek, sentimen = parse_label(label)
+    if label == "OUT_OF_TOPIC":
+        return "Di luar topik"
+    aspek_id = ASPEK_ID.get(aspek, aspek.title())
+    sentimen_id = SENTIMEN_ID.get(sentimen, sentimen.title())
+    return f"{aspek_id} - {sentimen_id}"
+
+
+def aspect_to_indonesia(aspect):
+    return ASPEK_ID.get(str(aspect), str(aspect).title())
+
+
+def sentiment_to_indonesia(sentiment):
+    return SENTIMEN_ID.get(str(sentiment), str(sentiment).title())
+
+
+def format_label_option(label):
+    return f"{label_to_indonesia(label)} ({label})"
+
+
+def dataframe_indonesia(df, mapping):
+    if df is None or df.empty:
+        return df
+    return df.rename(columns={col: mapping.get(col, col) for col in df.columns})
 
 
 def load_jsonl(path):
+    """Membaca JSONL secara tahan-error.
+
+    Fungsi ini dapat membaca file JSONL normal, file berisi beberapa objek JSON
+    berurutan, atau file yang tidak sengaja memiliki baris baru mentah di dalam
+    string. Kasus terakhir sering menjadi penyebab JSONDecodeError di Streamlit.
+    """
+    path = Path(path)
+    if not path.exists():
+        return []
+
+    text = path.read_text(encoding="utf-8-sig")
+    if not text.strip():
+        return []
+
+    # Jika file ternyata berupa JSON array atau satu objek JSON biasa.
+    try:
+        data = json.loads(text, strict=False)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return [data]
+    except json.JSONDecodeError:
+        pass
+
+    # Parser berurutan untuk format JSONL/JSON objects. strict=False membuat
+    # parser tetap bisa membaca string yang mengandung newline mentah.
     rows = []
-    if not Path(path).exists():
-        return rows
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                rows.append(json.loads(line))
+    decoder = json.JSONDecoder(strict=False)
+    idx = 0
+    n = len(text)
+    while idx < n:
+        while idx < n and text[idx].isspace():
+            idx += 1
+        if idx >= n:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Gagal membaca {path.name} pada baris {exc.lineno}, kolom {exc.colno}. "
+                "Pastikan file disimpan sebagai JSONL valid."
+            ) from exc
+        rows.append(obj)
+        idx = end
     return rows
 
 
 def load_json(path):
-    if not Path(path).exists():
+    path = Path(path)
+    if not path.exists():
         return None
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    text = path.read_text(encoding="utf-8-sig")
+    if not text.strip():
+        return None
+    return json.loads(text, strict=False)
 
 
 @st.cache_data(show_spinner=False)
@@ -134,7 +262,7 @@ def load_data():
     paths = get_paths()
     if paths["aggregated"].exists():
         aggregated = load_jsonl(paths["aggregated"])
-        annotation_rows = len(load_jsonl(paths["annotation"]))
+        annotation_rows = len(load_jsonl(paths["annotation"])) if paths["annotation"].exists() else 0
     else:
         aggregated, annotation_rows = aggregate_from_annotation(str(paths["annotation"]))
 
@@ -143,9 +271,9 @@ def load_data():
     entity_records = []
 
     for item in aggregated:
-        majority_labels = item.get("majority_labels", [])
-        union_labels = item.get("union_labels", [])
-        label_votes = item.get("label_votes", {})
+        majority_labels = item.get("majority_labels", []) or []
+        union_labels = item.get("union_labels", []) or []
+        label_votes = item.get("label_votes", {}) or {}
 
         review_records.append({
             "review_id": item.get("review_id", ""),
@@ -158,8 +286,8 @@ def load_data():
             "word_count": item.get("word_count", word_count(item.get("review_text", ""))),
             "token_count": item.get("token_count", 0),
             "n_annotators": item.get("n_annotators", 0),
-            "majority_labels": ", ".join(majority_labels),
-            "union_labels": ", ".join(union_labels),
+            "majority_labels": ", ".join(label_to_indonesia(label) for label in majority_labels),
+            "union_labels": ", ".join(label_to_indonesia(label) for label in union_labels),
         })
 
         for label in LABELS:
@@ -168,14 +296,17 @@ def load_data():
             label_records.append({
                 "review_id": item.get("review_id", ""),
                 "label": label,
+                "label_indonesia": label_to_indonesia(label),
                 "aspect": aspect,
+                "aspect_indonesia": aspect_to_indonesia(aspect),
                 "sentiment": sentiment,
+                "sentiment_indonesia": sentiment_to_indonesia(sentiment),
                 "vote_count": vote_count,
                 "is_majority": label in majority_labels,
                 "is_union": label in union_labels,
             })
 
-        spans = item.get("spans_all", [])
+        spans = item.get("spans_all", []) or []
         for span in spans:
             label = span.get("label", "")
             aspect, sentiment = parse_label(label)
@@ -183,8 +314,11 @@ def load_data():
                 "review_id": item.get("review_id", ""),
                 "annotator_id": span.get("annotator_id", ""),
                 "label": label,
+                "label_indonesia": label_to_indonesia(label),
                 "aspect": aspect,
+                "aspect_indonesia": aspect_to_indonesia(aspect),
                 "sentiment": sentiment,
+                "sentiment_indonesia": sentiment_to_indonesia(sentiment),
                 "entity_text": span.get("entity_text", ""),
                 "start": span.get("start", None),
                 "end": span.get("end", None),
@@ -216,16 +350,20 @@ def filter_reviews(reviews_df, labels_df, selected_categories, selected_labels, 
 
 
 def label_count_df(labels_df, only_majority=True):
+    if labels_df.empty:
+        return pd.DataFrame(columns=["label", "label_indonesia", "aspect_indonesia", "sentiment_indonesia", "jumlah_review"])
     data = labels_df[labels_df["is_majority"]] if only_majority else labels_df[labels_df["is_union"]]
-    counts = data.groupby(["label", "aspect", "sentiment"]).size().reset_index(name="jumlah_review")
+    counts = data.groupby(["label", "label_indonesia", "aspect_indonesia", "sentiment_indonesia"]).size().reset_index(name="jumlah_review")
     return counts.sort_values("jumlah_review", ascending=False)
 
 
 def entity_count_df(entities_df):
     if entities_df.empty:
-        return pd.DataFrame(columns=["label", "aspect", "sentiment", "jumlah_entitas"])
+        return pd.DataFrame(columns=["label", "label_indonesia", "aspect_indonesia", "sentiment_indonesia", "jumlah_entitas"])
     data = entities_df[entities_df["is_majority_label"]].copy()
-    counts = data.groupby(["label", "aspect", "sentiment"]).size().reset_index(name="jumlah_entitas")
+    if data.empty:
+        return pd.DataFrame(columns=["label", "label_indonesia", "aspect_indonesia", "sentiment_indonesia", "jumlah_entitas"])
+    counts = data.groupby(["label", "label_indonesia", "aspect_indonesia", "sentiment_indonesia"]).size().reset_index(name="jumlah_entitas")
     return counts.sort_values("jumlah_entitas", ascending=False)
 
 
@@ -242,9 +380,9 @@ def make_bar_chart(df, x_col, y_col, title, xlabel):
 def make_length_histogram(reviews_df):
     fig, ax = plt.subplots(figsize=(9, 4.8))
     ax.hist(reviews_df["word_count"].dropna(), bins=30)
-    ax.set_title("Distribusi Panjang Review")
+    ax.set_title("Distribusi Panjang Ulasan")
     ax.set_xlabel("Jumlah kata")
-    ax.set_ylabel("Jumlah review")
+    ax.set_ylabel("Jumlah ulasan")
     fig.tight_layout()
     return fig
 
@@ -257,69 +395,85 @@ def make_correlation_matrix(reviews_df, labels_df):
         if row["review_id"] in matrix.index and row["label"] in matrix.columns:
             matrix.loc[row["review_id"], row["label"]] = 1
     corr = matrix.corr().fillna(0)
+    label_names = [label_to_indonesia(label) for label in corr.columns]
 
     fig, ax = plt.subplots(figsize=(10, 8))
     im = ax.imshow(corr.values, vmin=-1, vmax=1)
     ax.set_xticks(range(len(corr.columns)))
     ax.set_yticks(range(len(corr.index)))
-    ax.set_xticklabels(corr.columns, rotation=90, fontsize=8)
-    ax.set_yticklabels(corr.index, fontsize=8)
+    ax.set_xticklabels(label_names, rotation=90, fontsize=8)
+    ax.set_yticklabels(label_names, fontsize=8)
     ax.set_title("Matriks Korelasi Antar Label")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     fig.tight_layout()
-    return fig, corr
+    corr_display = corr.copy()
+    corr_display.index = label_names
+    corr_display.columns = label_names
+    return fig, corr_display
 
 
 def page_overview(reviews_df, labels_df, entities_df, annotation_rows):
-    st.title("Kelp1 Dataset Explorer - ABSA Google Places")
-    st.caption("Aplikasi eksplorasi dataset anotasi Aspect-Based Sentiment Analysis untuk Kelompok 1.")
+    st.title("Explorer Dataset Kelp1 - ABSA Review Google Places")
+    st.caption("Dataset ulasan berbahasa Indonesia untuk Aspect-Based Sentiment Analysis pada domain kuliner.")
 
-    annotator_count = int(reviews_df["n_annotators"].max()) if not reviews_df.empty else 0
+    total_reviews = len(reviews_df)
+    total_labels = int(labels_df["is_majority"].sum()) if not labels_df.empty else 0
+    total_entities = len(entities_df)
+    avg_words = reviews_df["word_count"].mean() if not reviews_df.empty else 0
+
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Review unik", f"{len(reviews_df):,}")
-    col2.metric("Baris anotasi", f"{annotation_rows:,}")
-    col3.metric("Annotator", f"{annotator_count:,}")
-    col4.metric("Entitas NER", f"{len(entities_df):,}")
+    col1.metric("Jumlah ulasan unik", f"{total_reviews:,}")
+    col2.metric("Jumlah baris anotasi", f"{annotation_rows:,}")
+    col3.metric("Label mayoritas", f"{total_labels:,}")
+    col4.metric("Rata-rata kata/ulasan", f"{avg_words:.2f}")
 
     st.info(
-        "Kolom business_name dan rating disediakan di tabel, tetapi bernilai kosong karena metadata tersebut "
-        "tidak tersedia pada file anotasi yang digunakan."
+        "Label mayoritas dihitung dari label yang dipilih oleh minimal 2 dari 3 annotator. "
+        "Entitas NER ditampilkan berdasarkan span anotasi yang tersedia pada data."
     )
 
     counts = label_count_df(labels_df)
     st.subheader("Distribusi Label ABSA")
-    st.dataframe(counts, use_container_width=True, hide_index=True)
+    st.dataframe(dataframe_indonesia(counts, {**NAMA_KOLOM_LABEL, **NAMA_KOLOM_ENTITAS}), use_container_width=True, hide_index=True)
     if not counts.empty:
-        plot_df = counts.rename(columns={"label": "Label", "jumlah_review": "Jumlah"})
-        st.pyplot(make_bar_chart(plot_df, "Jumlah", "Label", "Distribusi Label Mayoritas", "Jumlah review"))
+        plot_df = counts.rename(columns={"label_indonesia": "Label", "jumlah_review": "Jumlah"})
+        st.pyplot(make_bar_chart(plot_df, "Jumlah", "Label", "Distribusi Label Mayoritas", "Jumlah ulasan"))
 
-    st.subheader("Contoh Data Review")
+    st.subheader("Contoh Data Ulasan")
     columns = ["review_id", "category", "business_name", "rating", "review_text", "majority_labels", "word_count"]
-    st.dataframe(reviews_df[columns].head(20), use_container_width=True, hide_index=True)
+    st.dataframe(dataframe_indonesia(reviews_df[columns].head(20), NAMA_KOLOM_REVIEW), use_container_width=True, hide_index=True)
 
 
 def page_browse(reviews_df, labels_df, filtered_reviews):
-    st.title("Browse Reviews")
-    st.caption("Gunakan filter di sidebar untuk mencari review berdasarkan kategori, label aspek-sentimen, dan kata kunci.")
+    st.title("Telusuri Ulasan")
+    st.caption("Gunakan filter di sidebar untuk mencari ulasan berdasarkan kategori, label aspek-sentimen, dan kata kunci.")
 
-    st.write(f"Menampilkan **{len(filtered_reviews):,}** dari **{len(reviews_df):,}** review unik.")
+    st.write(f"Menampilkan **{len(filtered_reviews):,}** dari **{len(reviews_df):,}** ulasan unik.")
     table_cols = ["review_id", "category", "business_name", "rating", "review_text", "majority_labels", "word_count"]
-    st.dataframe(filtered_reviews[table_cols], use_container_width=True, hide_index=True, height=450)
 
-    csv_bytes = filtered_reviews[table_cols].to_csv(index=False).encode("utf-8-sig")
-    st.download_button("Download data terfilter (CSV)", data=csv_bytes, file_name="Kelp1_filtered_reviews.csv", mime="text/csv")
+    if filtered_reviews.empty:
+        st.warning("Tidak ada ulasan yang sesuai dengan filter saat ini.")
+        return
 
-    st.subheader("Detail Review")
-    chosen = st.selectbox("Pilih review_id", filtered_reviews["review_id"].tolist() if not filtered_reviews.empty else [])
-    if chosen:
-        row = filtered_reviews[filtered_reviews["review_id"] == chosen].iloc[0]
-        st.markdown(f"**{row['review_id']}**")
-        st.write(row["review_text"])
-        st.write("Label mayoritas:", row["majority_labels"] if row["majority_labels"] else "-")
-        st.write("Jumlah kata:", row["word_count"])
+    st.dataframe(dataframe_indonesia(filtered_reviews[table_cols], NAMA_KOLOM_REVIEW), use_container_width=True, hide_index=True, height=450)
 
-        label_view = labels_df[(labels_df["review_id"] == chosen) & (labels_df["is_union"])].copy()
-        st.dataframe(label_view[["label", "aspect", "sentiment", "vote_count", "is_majority"]], use_container_width=True, hide_index=True)
+    csv_bytes = filtered_reviews[table_cols].rename(columns=NAMA_KOLOM_REVIEW).to_csv(index=False).encode("utf-8-sig")
+    st.download_button("Unduh data terfilter (CSV)", data=csv_bytes, file_name="Kelp1_ulasan_terfilter.csv", mime="text/csv")
+
+    st.subheader("Detail Ulasan")
+    chosen = st.selectbox("Pilih ID ulasan", filtered_reviews["review_id"].tolist())
+    row = filtered_reviews[filtered_reviews["review_id"] == chosen].iloc[0]
+    st.markdown(f"**{row['review_id']}**")
+    st.write(row["review_text"])
+    st.write("Label mayoritas:", row["majority_labels"] if row["majority_labels"] else "-")
+    st.write("Jumlah kata:", row["word_count"])
+
+    label_view = labels_df[(labels_df["review_id"] == chosen) & (labels_df["is_union"])].copy()
+    st.dataframe(
+        dataframe_indonesia(label_view[["label_indonesia", "aspect_indonesia", "sentiment_indonesia", "vote_count", "is_majority"]], NAMA_KOLOM_LABEL),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 def page_absa(labels_df, entities_df, filtered_reviews, selected_labels):
@@ -335,21 +489,24 @@ def page_absa(labels_df, entities_df, filtered_reviews, selected_labels):
     tab1, tab2, tab3 = st.tabs(["Label ABSA", "Entitas NER", "Ringkasan"])
     with tab1:
         st.subheader("Tabel Label ABSA")
-        st.write("Kolom `is_majority=True` berarti label dipilih minimal 2 dari 3 annotator.")
+        st.write("Kolom 'Mayoritas = True' berarti label dipilih minimal 2 dari 3 annotator.")
         label_table = label_view[label_view["is_union"] | label_view["is_majority"]].copy()
-        st.dataframe(
-            label_table[["review_id", "label", "aspect", "sentiment", "vote_count", "is_majority"]],
-            use_container_width=True,
-            hide_index=True,
-            height=500,
-        )
+        if label_table.empty:
+            st.warning("Tidak ada label ABSA untuk filter saat ini.")
+        else:
+            st.dataframe(
+                dataframe_indonesia(label_table[["review_id", "label_indonesia", "aspect_indonesia", "sentiment_indonesia", "vote_count", "is_majority", "label"]], NAMA_KOLOM_LABEL),
+                use_container_width=True,
+                hide_index=True,
+                height=500,
+            )
     with tab2:
         st.subheader("Tabel Entitas NER")
         if entity_view.empty:
             st.warning("Tidak ada entitas NER untuk filter saat ini.")
         else:
             st.dataframe(
-                entity_view[["review_id", "annotator_id", "entity_text", "label", "aspect", "sentiment", "start", "end", "is_majority_label"]],
+                dataframe_indonesia(entity_view[["review_id", "annotator_id", "entity_text", "label_indonesia", "aspect_indonesia", "sentiment_indonesia", "start", "end", "is_majority_label", "label"]], NAMA_KOLOM_ENTITAS),
                 use_container_width=True,
                 hide_index=True,
                 height=500,
@@ -361,52 +518,56 @@ def page_absa(labels_df, entities_df, filtered_reviews, selected_labels):
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**Label ABSA mayoritas**")
-            st.dataframe(label_summary, use_container_width=True, hide_index=True)
+            st.dataframe(dataframe_indonesia(label_summary, NAMA_KOLOM_LABEL), use_container_width=True, hide_index=True)
         with c2:
             st.markdown("**Entitas NER pada label mayoritas**")
-            st.dataframe(entity_summary, use_container_width=True, hide_index=True)
+            st.dataframe(dataframe_indonesia(entity_summary, NAMA_KOLOM_ENTITAS), use_container_width=True, hide_index=True)
 
 
 def page_statistics(reviews_df, labels_df, entities_df, filtered_reviews):
-    st.title("Statistics")
-    st.caption("Ringkasan statistik minimal: jumlah data, distribusi panjang review, dan distribusi data per aspek.")
+    st.title("Statistik Dataset")
+    st.caption("Ringkasan statistik: jumlah data, distribusi panjang ulasan, distribusi data per aspek, entitas, dan korelasi label.")
 
     st.subheader("Jumlah Data")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Review pada filter", f"{len(filtered_reviews):,}")
+    c1.metric("Ulasan pada filter", f"{len(filtered_reviews):,}")
     c2.metric("Rata-rata kata", f"{filtered_reviews['word_count'].mean():.2f}" if not filtered_reviews.empty else "0")
     c3.metric("Median kata", f"{filtered_reviews['word_count'].median():.0f}" if not filtered_reviews.empty else "0")
 
-    if not filtered_reviews.empty:
-        st.pyplot(make_length_histogram(filtered_reviews))
+    if filtered_reviews.empty:
+        st.warning("Tidak ada data untuk filter saat ini.")
+        return
+
+    st.pyplot(make_length_histogram(filtered_reviews))
 
     valid_ids = set(filtered_reviews["review_id"].tolist())
     label_view = labels_df[labels_df["review_id"].isin(valid_ids)]
     entity_view = entities_df[entities_df["review_id"].isin(valid_ids)]
 
     st.subheader("Distribusi Data per Aspek")
-    aspect_summary = label_view[label_view["is_majority"]].groupby("aspect").size().reset_index(name="jumlah_review")
-    st.dataframe(aspect_summary.sort_values("jumlah_review", ascending=False), use_container_width=True, hide_index=True)
+    aspect_summary = label_view[label_view["is_majority"]].groupby("aspect_indonesia").size().reset_index(name="jumlah_review")
+    aspect_summary = aspect_summary.rename(columns={"aspect_indonesia": "Aspek"})
+    st.dataframe(aspect_summary.sort_values("jumlah_review", ascending=False).rename(columns={"jumlah_review": "Jumlah Ulasan"}), use_container_width=True, hide_index=True)
     if not aspect_summary.empty:
         fig, ax = plt.subplots(figsize=(7, 4))
-        ax.bar(aspect_summary["aspect"], aspect_summary["jumlah_review"])
-        ax.set_title("Distribusi Review per Aspek")
+        ax.bar(aspect_summary["Aspek"], aspect_summary["jumlah_review"])
+        ax.set_title("Distribusi Ulasan per Aspek")
         ax.set_xlabel("Aspek")
-        ax.set_ylabel("Jumlah review")
+        ax.set_ylabel("Jumlah ulasan")
         ax.tick_params(axis="x", rotation=30)
         fig.tight_layout()
         st.pyplot(fig)
 
     st.subheader("Distribusi Entitas ABSA")
     ent_summary = entity_count_df(entity_view)
-    st.dataframe(ent_summary, use_container_width=True, hide_index=True)
+    st.dataframe(dataframe_indonesia(ent_summary, NAMA_KOLOM_ENTITAS), use_container_width=True, hide_index=True)
     if not ent_summary.empty:
-        plot_df = ent_summary.rename(columns={"label": "Label", "jumlah_entitas": "Jumlah"})
+        plot_df = ent_summary.rename(columns={"label_indonesia": "Label", "jumlah_entitas": "Jumlah"})
         st.pyplot(make_bar_chart(plot_df, "Jumlah", "Label", "Distribusi Entitas NER", "Jumlah entitas"))
 
     st.subheader("Matriks Korelasi Antar Label")
     if len(filtered_reviews) < 2:
-        st.warning("Matriks korelasi membutuhkan minimal 2 review.")
+        st.warning("Matriks korelasi membutuhkan minimal 2 ulasan.")
     else:
         fig, corr = make_correlation_matrix(filtered_reviews, label_view)
         st.pyplot(fig)
@@ -415,19 +576,29 @@ def page_statistics(reviews_df, labels_df, entities_df, filtered_reviews):
 
 
 def page_irr():
-    st.title("IRR")
+    st.title("Inter-Annotator Agreement (IRR)")
     st.caption("Menampilkan hasil IRR dari file yang sudah disiapkan dosen/kelompok.")
 
     paths = get_paths()
     irr_textcat = load_json(paths["irr_textcat"])
     irr_ner = load_json(paths["irr_ner"])
 
-    st.subheader("IRR Text Classification / Multi-label")
+    st.subheader("IRR Klasifikasi Teks / Multi-label")
     if irr_textcat:
         irr_df = pd.DataFrame.from_dict(irr_textcat, orient="index").reset_index(names="label")
-        display_cols = ["label", "n_examples", "n_annotators", "percent_agreement", "kripp_alpha", "gwet_ac2"]
+        irr_df["label_indonesia"] = irr_df["label"].apply(label_to_indonesia)
+        display_cols = ["label_indonesia", "label", "n_examples", "n_annotators", "percent_agreement", "kripp_alpha", "gwet_ac2"]
         available_cols = [col for col in display_cols if col in irr_df.columns]
-        st.dataframe(irr_df[available_cols], use_container_width=True, hide_index=True)
+        rename_irr = {
+            "label_indonesia": "Label",
+            "label": "Kode Label",
+            "n_examples": "Jumlah Contoh",
+            "n_annotators": "Jumlah Annotator",
+            "percent_agreement": "Persentase Kesepakatan",
+            "kripp_alpha": "Krippendorff Alpha",
+            "gwet_ac2": "Gwet AC2",
+        }
+        st.dataframe(irr_df[available_cols].rename(columns=rename_irr), use_container_width=True, hide_index=True)
     else:
         st.warning("File Kelp1_irr_textcat.json tidak ditemukan.")
 
@@ -437,18 +608,30 @@ def page_irr():
             "n_examples", "n_categories", "n_coincident_examples", "n_single_annotation",
             "n_annotators", "avg_raters_per_example", "pairwise_f1", "pairwise_recall", "pairwise_precision",
         ]
-        summary_rows = [{"metric": key, "value": irr_ner.get(key)} for key in summary_keys if key in irr_ner]
+        nama_metric = {
+            "n_examples": "Jumlah contoh",
+            "n_categories": "Jumlah kategori",
+            "n_coincident_examples": "Contoh beririsan",
+            "n_single_annotation": "Anotasi tunggal",
+            "n_annotators": "Jumlah annotator",
+            "avg_raters_per_example": "Rata-rata penilai per contoh",
+            "pairwise_f1": "Pairwise F1",
+            "pairwise_recall": "Pairwise recall",
+            "pairwise_precision": "Pairwise precision",
+        }
+        summary_rows = [{"Metrik": nama_metric.get(key, key), "Nilai": irr_ner.get(key)} for key in summary_keys if key in irr_ner]
         st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
         metrics = irr_ner.get("metrics_per_label", {})
         if metrics:
             metrics_df = pd.DataFrame.from_dict(metrics, orient="index").reset_index(names="label")
-            st.markdown("**Metrics per label**")
-            st.dataframe(metrics_df, use_container_width=True, hide_index=True)
+            metrics_df["label_indonesia"] = metrics_df["label"].apply(label_to_indonesia)
+            st.markdown("**Metrik per label**")
+            st.dataframe(metrics_df.rename(columns={"label_indonesia": "Label", "label": "Kode Label"}), use_container_width=True, hide_index=True)
 
         matrix = irr_ner.get("confusion_matrix", [])
         if matrix:
-            labels_for_matrix = LABELS + ["NO_ENTITY"]
+            labels_for_matrix = [label_to_indonesia(label) for label in LABELS] + ["Bukan entitas"]
             matrix_df = pd.DataFrame(matrix, index=labels_for_matrix[:len(matrix)], columns=labels_for_matrix[:len(matrix[0])])
             with st.expander("Confusion matrix NER"):
                 st.dataframe(matrix_df, use_container_width=True)
@@ -457,8 +640,8 @@ def page_irr():
 
 
 def main():
-    st.set_page_config(page_title="Kelp1 Dataset Explorer", layout="wide")
-    st.sidebar.title("Kelp1 Explorer")
+    st.set_page_config(page_title="Explorer Dataset Kelp1", layout="wide")
+    st.sidebar.title("Explorer Kelp1")
     reviews_df, labels_df, entities_df, annotation_rows = load_data()
 
     if reviews_df.empty:
@@ -467,23 +650,23 @@ def main():
 
     categories = sorted(reviews_df["category"].dropna().unique().tolist())
     selected_categories = st.sidebar.multiselect("Filter kategori usaha", categories, default=categories)
-    selected_labels = st.sidebar.multiselect("Filter aspek-sentimen", LABELS)
-    query = st.sidebar.text_input("Cari review / business_name")
-    page = st.sidebar.radio("Halaman", ["Overview", "Browse Reviews", "Panel ABSA", "Statistics", "IRR"])
+    selected_labels = st.sidebar.multiselect("Filter aspek-sentimen", LABELS, format_func=format_label_option)
+    query = st.sidebar.text_input("Cari ulasan / nama usaha")
+    page = st.sidebar.radio("Halaman", ["Ringkasan", "Telusuri Ulasan", "Panel ABSA dan NER", "Statistik", "IRR"])
 
     filtered_reviews = filter_reviews(reviews_df, labels_df, selected_categories, selected_labels, query)
 
     st.sidebar.markdown("---")
     st.sidebar.write("Data terfilter:", len(filtered_reviews))
-    st.sidebar.write("Total review:", len(reviews_df))
+    st.sidebar.write("Total ulasan:", len(reviews_df))
 
-    if page == "Overview":
+    if page == "Ringkasan":
         page_overview(reviews_df, labels_df, entities_df, annotation_rows)
-    elif page == "Browse Reviews":
+    elif page == "Telusuri Ulasan":
         page_browse(reviews_df, labels_df, filtered_reviews)
-    elif page == "Panel ABSA":
+    elif page == "Panel ABSA dan NER":
         page_absa(labels_df, entities_df, filtered_reviews, selected_labels)
-    elif page == "Statistics":
+    elif page == "Statistik":
         page_statistics(reviews_df, labels_df, entities_df, filtered_reviews)
     elif page == "IRR":
         page_irr()
