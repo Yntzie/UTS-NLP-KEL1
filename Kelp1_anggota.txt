@@ -2,5 +2,5 @@ Kenzie Christ Yanto 230712298
 Nicholas Abed Nego Sinay 230712291
 Dinarradja Raditya Dharma 230712321
 
-link streamlit : 
+link streamlit : https://uts-nlp-kel1-zpwqhdc5j8juacvnymckry.streamlit.app/
 link github : https://github.com/Yntzie/UTS-NLP-KEL1#
