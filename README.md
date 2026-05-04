@@ -1,16 +1,20 @@
-# Kelp1 Project - Dataset Explorer ABSA
+# Kelp1 - Dataset Explorer ABSA
 
-Folder ini berisi output proyek Kelompok 1.
+Proyek ini disesuaikan dengan dataset terbaru dari kelompok 1.
 
-## Cara menjalankan Streamlit
+## Sumber data utama
+
+- `dataset/Kelp1_dataset_1.csv`: dataset mentah/kotor hasil scraping.
+- `dataset/Kelp1_dataset_2.csv`: dataset hasil preprocessing.
+- `dataset/db_nlp1_genap2526.jsonl`: data anotasi lengkap dari dosen/Prodigy.
+- `dataset/Kelp1_dataset_anotasi.jsonl`: salinan data anotasi lengkap dengan nama file wajib.
+- `dataset/Kelp1_dataset_anotasi_aggregated.jsonl`: data final hasil agregasi voting mayoritas untuk EDA dan Streamlit.
+- `dataset/nlp1_iaaa_textcat.jsonl`: IRR klasifikasi teks/multi-label.
+- `dataset/nlp1_iaaa.jsonl`: IRR NER/span.
+
+## Menjalankan Streamlit
+
 ```bash
 pip install -r requirements.txt
 streamlit run streamlit/Kelp1_app.py
 ```
-
-## Catatan data
-- File anotasi asli berisi 2.745 baris anotasi dari 3 annotator.
-- Dataset unik berisi 915 review.
-- Kolom `business_name` dan `rating` dibuat kosong karena tidak tersedia di file anotasi yang diunggah.
-- Kategori diisi `Kuliner` berdasarkan isi review yang dominan membahas makanan/tempat makan.
-- IRR dari dosen disalin ke `dataset/Kelp1_irr_ner.json` dan `dataset/Kelp1_irr_textcat.json` untuk ditampilkan di aplikasi.
