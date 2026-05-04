@@ -330,7 +330,7 @@ def bar_chart_count(df: pd.DataFrame, col: str, title: str):
 
 def halaman_ringkasan(raw_df, clean_df, reviews_df, labels_df, entities_df, annotation_rows):
     st.title("Ringkasan Dataset ABSA Kelompok 1")
-    st.write("Aplikasi ini menggunakan dataset mentah, dataset hasil preprocessing, data anotasi Prodigy, serta file IRR dari dosen/kelompok.")
+    st.write("Aplikasi ini menggunakan dataset mentah, dataset hasil preprocessing, data anotasi Prodigy, serta file IRR.")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Data mentah", f"{len(raw_df):,}")
@@ -474,6 +474,40 @@ def halaman_irr():
     textcat_path = cari_file("nlp1_iaaa_textcat.jsonl", "Kelp1_irr_textcat.json", "Kelp1_irr_textcat.jsonl")
     ner_path = cari_file("nlp1_iaaa.jsonl", "Kelp1_irr_ner.json", "Kelp1_irr_ner.jsonl")
 
+    # Hitung rata-rata IRR klasifikasi teks / multi-label
+    if textcat_path is not None:
+        rows = []
+
+        with open(textcat_path, "r", encoding="utf-8") as f:
+            data_irr = json.load(f)
+
+        if isinstance(data_irr, dict):
+            for kode_label, metrik in data_irr.items():
+                row = {
+                    "Kode Label": kode_label
+                }
+                row.update(metrik)
+                rows.append(row)
+
+        df_irr = pd.DataFrame(rows)
+
+        if "percent_agreement" in df_irr.columns:
+            nilai_irr = pd.to_numeric(
+                df_irr["percent_agreement"],
+                errors="coerce"
+            ).dropna()
+
+            if not nilai_irr.empty:
+                # Jika nilainya masih desimal seperti 0.8208, ubah ke persen
+                if nilai_irr.max() <= 1:
+                    rata_irr = nilai_irr.mean() * 100
+                else:
+                    rata_irr = nilai_irr.mean()
+
+                st.metric("Rata-rata IRR", f"{rata_irr:.2f}%")
+    else:
+        st.warning("File IRR klasifikasi teks / multi-label tidak ditemukan.")
+    
     st.subheader("IRR Klasifikasi Teks / Multi-label")
     if textcat_path is None:
         st.warning("File IRR textcat belum ditemukan. Letakkan `nlp1_iaaa_textcat.jsonl` di folder dataset/.")
